@@ -15,13 +15,19 @@ import itertools
 import plotly.io as pio
 
 # Taxa de juros e S&P
-# Outra variável comparativa de carteiras - skillness por ex, blend de variáveis, retorno absoluto, minimizar a maior queda
+# Outra variável comparativa de carteiras - skillness por ex,
+#   blend de variáveis, retorno absoluto, minimizar a maior queda
 
 # %%
 all_columns = ['Date','IBOV', 'DOLBRL', 'CDI', 'IBXX', 'SMLL']
 
 bench = pd.read_csv('20230224_dao_benchmarks.csv')
-bench = bench.rename({"Close|adj by CA's|orig currency|IBOV":"IBOV","Close|adj by CA's|orig currency|DOLOF":"DOLBRL", "Close|adj by CA's|orig currency|CDI Acumulado":"CDI", "Close|adj by CA's|orig currency|IBXX":"IBXX", "Close|adj by CA's|orig currency|SMLL":"SMLL"}, axis = 1)
+bench = bench.rename({"Close|adj by CA's|orig currency|IBOV":"IBOV",
+        "Close|adj by CA's|orig currency|DOLOF":"DOLBRL",
+        "Close|adj by CA's|orig currency|CDI Acumulado":"CDI",
+        "Close|adj by CA's|orig currency|IBXX":"IBXX",
+        "Close|adj by CA's|orig currency|SMLL":"SMLL"}, axis = 1)
+
 bench = bench[all_columns].replace('-', np.NaN)
 ibov = bench.dropna()
 for c in all_columns[1:]:
@@ -32,8 +38,9 @@ ibov['Date'] = pd.to_datetime(ibov['Date'])
 
 di=pd.read_excel('taxas_b3.xlsx', usecols=['Data', 'Fator Diário'])
 
-ibov = ibov.set_index('Date').join(di.set_index('Data')).dropna().reset_index().rename({'Fator Diário':'DI'}, axis=1)
-
+ibov = ibov.set_index('Date')
+ibov = ibov.join(di.set_index('Data'))
+ibov = ibov.dropna().reset_index().rename({'Fator Diário':'DI'}, axis=1)
 
 # Define os símbolos e as datas de início e fim
 indice_US = "^GSPC"  # S&P 500
@@ -68,15 +75,20 @@ taxas_pre.head(25)
 mty_short_term = 126 #6 meses
 mty_long_term = 1260 #5 anos
 
-taxas_pre_short = taxas_pre.loc[taxas_pre['mty']==mty_short_term, ['date', 'taxa']].set_index('date').rename({'taxa':'SHORT_INT'}, axis=1)
+taxas_pre_short = taxas_pre.loc[taxas_pre['mty']==mty_short_term, ['date', 'taxa']]
+taxas_pre_short = taxas_pre_short.set_index('date').rename({'taxa':'SHORT_INT'}, axis=1)
 taxas_pre_short['SHORT_INT'] = taxas_pre_short['SHORT_INT']*10000
-taxas_pre_long = taxas_pre.loc[taxas_pre['mty']==mty_long_term, ['date', 'taxa']].set_index('date').rename({'taxa':'LONG_INT'}, axis=1)
+
+taxas_pre_long = taxas_pre.loc[taxas_pre['mty']==mty_long_term, ['date', 'taxa']]
+taxas_pre_long = taxas_pre_long.set_index('date').rename({'taxa':'LONG_INT'}, axis=1)
 taxas_pre_long['LONG_INT'] = taxas_pre_long['LONG_INT']*10000
 
 ibov = ibov.set_index('Date').join(taxas_pre_short).dropna()
 ibov = ibov.join(taxas_pre_long).dropna().reset_index()
 
-taxas_selic = pd.read_csv('taxas_selic.csv', sep=';').rename({'1178 - Taxa de juros - Selic anualizada base 252 - % a.a.':'SELIC'}, axis=1)
+taxas_selic_name = {'1178 - Taxa de juros - Selic anualizada base 252 - % a.a.':'SELIC'}
+taxas_selic = pd.read_csv('taxas_selic.csv', sep=';')
+taxas_selic = taxas_selic.rename(taxas_selic_name, axis=1)
 taxas_selic.drop(taxas_selic.tail(1).index,inplace=True)
 taxas_selic['Data'] = taxas_selic.Data.apply(lambda x: '-'.join(x.split('/')[::-1]))
 taxas_selic['Data'] = pd.to_datetime(taxas_selic['Data'])
@@ -89,7 +101,10 @@ ibov['SELIC'] = pd.to_numeric(ibov['SELIC'])
 
 lista_selic = list(ibov['SELIC'])
 # lista_selic
-lista_ciclo = [0 if lista_selic[i]<lista_selic[i-1] else 1 if lista_selic[i]>lista_selic[i-1] else -1 for i in range(1, len(lista_selic))]
+lista_ciclo = [0 if lista_selic[i]<lista_selic[i-1]
+                else 1 if lista_selic[i]>lista_selic[i-1]
+                else -1 for i in range(1, len(lista_selic))]
+
 last_non_negative = None
 new_lista_ciclo = []
 
@@ -101,37 +116,10 @@ new_lista_ciclo = [new_lista_ciclo[0],*new_lista_ciclo]
 ibov['SELIC_CYCLE'] = pd.Series(new_lista_ciclo, name='SELIC_CYCLE')
 ibov.head(10)
 
-
 # %%
-def summary_statistics(data):
-    """
-    Build some basic, pre-defined, statistic results for a series of values.
-    """
-    if isinstance(data, pd.DataFrame):
-        cagrs = {}
-        for col in data.columns:
-            cagrs[col] = summary_statistics(data[col])
-        return pd.DataFrame(cagrs.values(), cagrs.keys())
-    assert pd.api.types.is_numeric_dtype(data), f"Expected numeric type. Received `{data.dtype}` dtype."
-    res = data.agg(
-        [
-            np.amin,
-            np.amax,
-            np.median,
-            np.mean,
-            np.std,
-            lambda x: x.skew(),
-            lambda x: x.kurt(),
-        ]
-    )
-    return pd.Series(res.values, ["amin", "amax", "median", "mean", "std", "skew", "kurt"])
-
 # Estratégias
 def estrategia_variacao(ser: pd.Series, peso) -> pd.Series:
     starting_pos = 1
-#     exp = starting_pos + peso*ser
-#     exp[exp<0] = 0
-#     return exp
     return starting_pos + peso*ser
 
 def estrategia_juros(ser_ciclo, ser_inclinacao, peso):
@@ -233,11 +221,11 @@ def gera_graficos(variable_strategy, df, init_date = None, end_date = None):
     if init_date is not None:
         init_date = pd.to_datetime(init_date, format='%d-%m-%Y')
         df = df.loc[df['Date']>=init_date]
-        
+
     if end_date is not None:
         end_date = pd.to_datetime(end_date, format='%d-%m-%Y')
         df = df.loc[df['Date']<=end_date]
-    
+
     dic_day, var_variacao = pesquisa_multipeso_multidia(variable_strategy, df)
 
     df_resumo = pd.DataFrame.from_dict(dic_day, orient='index', columns = ['Exposição', 'Sharp', 'Peso', 'Atribuição_Estratégia'])
@@ -262,9 +250,9 @@ def gera_graficos(variable_strategy, df, init_date = None, end_date = None):
 #     axis2.set_title("Exposição e Sinal no Tempo", fontsize = 20)
 #     plt.savefig(f'resultados_interno2/{variable_strategy}_aux.jpg')
 #     plt.show()
-    
+
     premio_risco_variavel = premio_risco(df_resumo[f'Atribuição_Estratégia'])
-    
+
     compare_df = ibov[['IBOV','Date']].set_index('Date').join(np.cumprod(1+df_resumo['Atribuição_Estratégia'])).dropna()
 
     compare_df['IBOV'] = pd.to_numeric(compare_df['IBOV'])
