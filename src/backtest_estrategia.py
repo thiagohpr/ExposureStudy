@@ -160,8 +160,8 @@ def custom_function(series):
     return series.mean()  # Placeholder example: Calculating mean of the series
 
 def gera_linha_resumo(strategy ,df, df_resumo):
-    # linha_resumo
-    # retorno acumulado, meses comprados, meses vendidos, sharpe anual médio(média de todos os sharpes calculados anualmente)
+    # retorno acumulado, meses comprados, meses vendidos, sharpe anual
+    #  médio(média de todos os sharpes calculados anualmente)
     df_resumo = df_resumo.reset_index()
     df_resumo = df_resumo.rename({'index':'Date'}, axis = 1)
 
@@ -178,17 +178,28 @@ def gera_linha_resumo(strategy ,df, df_resumo):
     months_negative = (monthly_sum <= 0).sum()
     months_positive = (monthly_sum > 0).sum()
 
-    mean_yearly_sharpe = df_resumo.groupby('year')['Atribuição_Estratégia'].apply(premio_risco).mean()
+    mean_yearly_sharpe = df_resumo.groupby('year')['Atribuição_Estratégia']
+    mean_yearly_sharpe = mean_yearly_sharpe.apply(premio_risco).mean()
     # print(f'Retorno Acumulado: {retorno_acumulado}')
     # print(f'Meses Exp<=0: {months_negative}')
     # print(f'Meses Exp>0: {months_positive}')
     # print(f'Shape médio anual: {mean_yearly_sharpe}')
-    this_line = pd.Series({'Estratégia':strategy,'Retorno Acumulado':retorno_acumulado, 'Meses Exp<=0':int(months_negative), 'Meses Exp>0':int(months_positive), 'Sharpe Médio Anual':mean_yearly_sharpe})
+    this_line = pd.Series({'Estratégia':strategy,
+                           'Retorno Acumulado':retorno_acumulado,
+                           'Meses Exp<=0':int(months_negative),
+                           'Meses Exp>0':int(months_positive),
+                           'Sharpe Médio Anual':mean_yearly_sharpe})
     df = df.append(this_line, ignore_index=True)
     return df
 
 
-def gera_grafico_performance(time_df, performance_df, exposicao_df, ibov_df, variable, date_i, save_fig):
+def gera_grafico_performance(time_df,
+                             performance_df,
+                             exposicao_df,
+                             ibov_df,
+                             variable,
+                             date_i,
+                             save_fig):
     fig, ax = plt.subplots()
     fig.set_figwidth(10)
     fig.set_figheight(8)
@@ -196,11 +207,12 @@ def gera_grafico_performance(time_df, performance_df, exposicao_df, ibov_df, var
     legend_lines = []  # List to store plotted lines
 
     for i in range(len(time_df) - 1):
+        value = exposicao_df[i]
         x = [time_df[i], time_df[i + 1]]
         y1 = [performance_df[i], performance_df[i + 1]]
         y2 = [ibov_df[i], ibov_df[i + 1]]
-        color = 'r' if exposicao_df[i] < 0 else 'b' if exposicao_df[i] < 1 else 'g'  # Set color based on the additional variable
-        label = 'Exp<0' if exposicao_df[i] < 0 else 'Exp>0 and Exp<1' if exposicao_df[i] < 1 else 'Exp>=1'
+        color = 'r' if value < 0 else 'b' if value < 1 else 'g'
+        label = 'Exp<0' if value < 0 else 'Exp>0 and Exp<1' if value < 1 else 'Exp>=1'
         line, = ax.plot(x, y1,label=label, color=color)
         ax.plot(x, y2, color = 'orange')
 
@@ -227,8 +239,8 @@ def gera_graficos(variable_strategy, df, init_date = None, end_date = None):
         df = df.loc[df['Date']<=end_date]
 
     dic_day, var_variacao = pesquisa_multipeso_multidia(variable_strategy, df)
-
-    df_resumo = pd.DataFrame.from_dict(dic_day, orient='index', columns = ['Exposição', 'Sharp', 'Peso', 'Atribuição_Estratégia'])
+    columns_resumo = ['Exposição', 'Sharp', 'Peso', 'Atribuição_Estratégia']
+    df_resumo = pd.DataFrame.from_dict(dic_day, orient='index', columns = columns_resumo)
 #     figure, axis = plt.subplots(2, 1)
 #     figure.set_figwidth(10)
 #     figure.set_figheight(20)
@@ -253,7 +265,8 @@ def gera_graficos(variable_strategy, df, init_date = None, end_date = None):
 
     premio_risco_variavel = premio_risco(df_resumo[f'Atribuição_Estratégia'])
 
-    compare_df = ibov[['IBOV','Date']].set_index('Date').join(np.cumprod(1+df_resumo['Atribuição_Estratégia'])).dropna()
+    compare_df = ibov[['IBOV','Date']].set_index('Date')
+    compare_df = compare_df.join(np.cumprod(1+df_resumo['Atribuição_Estratégia'])).dropna()
 
     compare_df['IBOV'] = pd.to_numeric(compare_df['IBOV'])
     compare_df['IBOV'] /= compare_df['IBOV'].iloc[0]
@@ -269,27 +282,32 @@ def gera_graficos(variable_strategy, df, init_date = None, end_date = None):
 def pesquisa_multipeso_multidia(variable_strategy, df):
     dic_day = {}
     i = 0
+    column_name = f'{variable_strategy}_variation'
     for day in df['Date'][window+null_n_strategy+shift:]:
         print(f'Processando dia {day}')
         all_variable_series = df.loc[df['Date']<=day].tail(window+null_n_strategy+shift)
         variable_series = all_variable_series.iloc[:-1]
 #         print(variable_series)
-        
-        variable_series[f'{variable_strategy}_variation'] = np.cumprod(1+variable_series[variable_strategy].pct_change())
-        # variable_series[f'{variable_strategy}_variation'] = variable_series[variable_strategy].pct_change()
- 
+
+        variable_series[column_name] = np.cumprod(1+variable_series[variable_strategy].pct_change())
+
         #normaliza sinal de 0 a 1
-        variable_series[f'{variable_strategy}_variation'] = variable_series[f'{variable_strategy}_variation']/variable_series[f'{variable_strategy}_variation'].max()
-        
-        pesos = [-4,-3.0,-2.8,-2.6,-2.4,-2.2,-2,-1.8,-1.6,-1.4,-1.2,-1,-0.8,-0.6,-0.4,-0.2,0,0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2,2.2,2.4,2.6,2.8,3,4]
-        # pesos = [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1]
+        max_value = variable_series[column_name].max()
+        variable_series[column_name] = variable_series[column_name]/max_value
+
+        pesos = [-4,-3.0,-2.8,-2.6,-2.4,-2.2,-2,-1.8,-1.6,-1.4,-1.2,-1,-0.8,
+                 -0.6,-0.4,-0.2,0,0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2,2.2,
+                 2.4,2.6,2.8,3,4]
 
         melhor_premio = -99999999999
         melhor_exposition = 0
         melhor_peso = 0
         melhor_exposition_df = 0
         for peso in pesos:
-            exposition_d_1, premio_risco_variavel = calcula_premio_risco_dia(variable_series, variable_strategy, estrategia_variacao, peso)
+            exposition_d_1, premio_risco_variavel = calcula_premio_risco_dia(variable_series,
+                                                                             variable_strategy,
+                                                                             estrategia_variacao,
+                                                                             peso)
 
             if premio_risco_variavel > melhor_premio:
                 melhor_exposition = exposition_d_1
@@ -298,32 +316,44 @@ def pesquisa_multipeso_multidia(variable_strategy, df):
 
         ibov_variation_reference_day = all_variable_series.iloc[-1]['ibov_variation']
 
-        dic_day[day] = [melhor_exposition, melhor_premio, melhor_peso, melhor_exposition*ibov_variation_reference_day]
+        dic_day[day] = [melhor_exposition, melhor_premio, melhor_peso,
+                        melhor_exposition*ibov_variation_reference_day]
         clear_output(wait=True)
-        
+
 # #         if i == 800:
         # if i == 0:
 
         #     break
         # i+=1
-    return dic_day, [df[df['Date'].isin(list(dic_day.keys()))], df[df['Date'].isin(list(dic_day.keys()))][variable_strategy].pct_change()]
-     
-             
+
+    values_within_dates = df[df['Date'].isin(list(dic_day.keys()))]
+    var_variacao = [values_within_dates, values_within_dates[variable_strategy].pct_change()]
+    return dic_day, var_variacao
+
+
 def calcula_premio_risco_dia(variable_series, variable_strategy, estrategia, peso):
     this_exposition = variable_series
 #     print(this_exposition)
+    column_name = f'exposicao_variacao_{variable_strategy}'
+    variation = this_exposition[f'{variable_strategy}_variation']
+    this_exposition[column_name] = estrategia(variation, peso)
 
-    this_exposition[f'exposicao_variacao_{variable_strategy}'] = estrategia(this_exposition[f'{variable_strategy}_variation'], peso)
+    this_exposition[column_name + '_shift'] = this_exposition[column_name].shift(2)
 
-    this_exposition[f'exposicao_variacao_{variable_strategy}_shift'] = this_exposition[f'exposicao_variacao_{variable_strategy}'].shift(2)
-    
-    this_exposition[f'exposicao_variacao_{variable_strategy}_shift_difference'] = this_exposition[f'exposicao_variacao_{variable_strategy}_shift'] - 1
-    
-    this_exposition[f'pnl_variacao_{variable_strategy}'] = this_exposition['ibov_variation'] * this_exposition[f'exposicao_variacao_{variable_strategy}_shift']
-    
-    this_exposition.loc[this_exposition[f'exposicao_variacao_{variable_strategy}_shift_difference'] > 0, f'pnl_variacao_{variable_strategy}'] -= this_exposition['DI'] * (this_exposition[f'exposicao_variacao_{variable_strategy}_shift']-1)
-    this_exposition.loc[this_exposition[f'exposicao_variacao_{variable_strategy}_shift_difference'] < 0, f'pnl_variacao_{variable_strategy}'] += this_exposition['DI'] * (1-this_exposition[f'exposicao_variacao_{variable_strategy}_shift'])
-    
+    this_exposition[column_name + '_shift_difference'] = this_exposition[column_name + '_shift'] - 1
+
+    pnl_column_name = f'pnl_variacao_{variable_strategy}'
+    pnl = this_exposition['ibov_variation'] * this_exposition[column_name + '_shift']
+    this_exposition[pnl_column_name] = pnl
+
+    condition_positive_exp = this_exposition[column_name + '_shift_difference'] > 0
+    result_positive_exp = this_exposition['DI'] * (this_exposition[column_name + '_shift'] - 1)
+    this_exposition.loc[condition_positive_exp, pnl_column_name] -= result_positive_exp
+
+    condition_negative_exp = this_exposition[column_name + '_shift_difference'] < 0
+    result_negative_exp = this_exposition['DI'] * (1-this_exposition[column_name + '_shift'])
+    this_exposition.loc[condition_negative_exp, pnl_column_name] += result_negative_exp
+
     # print(pd.DataFrame({
     #     'Variavel':this_exposition[variable_strategy],
     #     'Sinal':this_exposition[f'{variable_strategy}_variation'],
@@ -332,10 +362,10 @@ def calcula_premio_risco_dia(variable_series, variable_strategy, estrategia, pes
     #     'IBOV_Var':this_exposition['ibov_variation'],
     #     'P&L_pos_DI':this_exposition[f'pnl_variacao_{variable_strategy}']
     # }))
-    
-    premio_risco_variavel = premio_risco(this_exposition[f'pnl_variacao_{variable_strategy}'])
 
-    return this_exposition[f'exposicao_variacao_{variable_strategy}_shift'].iloc[-1], premio_risco_variavel
+    premio_risco_variavel = premio_risco(this_exposition[pnl_column_name])
+
+    return this_exposition[column_name + '_shift'].iloc[-1], premio_risco_variavel
 
 
 # %%
@@ -345,19 +375,21 @@ def gera_graficos2(variable_strategy1, variable_strategy2, df, init_date = None,
     if init_date is not None:
         init_date = pd.to_datetime(init_date, format='%d-%m-%Y')
         df = df.loc[df['Date']>=init_date]
-        
+
     if end_date is not None:
         end_date = pd.to_datetime(end_date, format='%d-%m-%Y')
         df = df.loc[df['Date']<=end_date]
-    
+
     dic_day = pesquisa_multipeso_multidia2(variable_strategy1, variable_strategy2, df)
 
-    df_resumo = pd.DataFrame.from_dict(dic_day, orient='index', columns = ['Exposição', 'Sharp', 'Peso', 'Atribuição_Estratégia'])
-    
-    premio_risco_variavel = premio_risco(df_resumo[f'Atribuição_Estratégia'])
-    
-    compare_df = ibov[['IBOV','Date']].set_index('Date').join(np.cumprod(1+df_resumo['Atribuição_Estratégia'])).dropna()
+    resumo_columns = ['Exposição', 'Sharp', 'Peso', 'Atribuição_Estratégia']
+    df_resumo = pd.DataFrame.from_dict(dic_day, orient='index', columns = resumo_columns)
 
+    premio_risco_variavel = premio_risco(df_resumo[f'Atribuição_Estratégia'])
+
+    compare_df = ibov[['IBOV','Date']].set_index('Date')
+    compare_df = compare_df.join(np.cumprod(1+df_resumo['Atribuição_Estratégia']))
+    compare_df = compare_df.dropna()
     compare_df['IBOV'] = pd.to_numeric(compare_df['IBOV'])
     compare_df['IBOV'] /= compare_df['IBOV'].iloc[0]
     compare_df[f'Atribuição_Estratégia'] /= compare_df[f'Atribuição_Estratégia'].iloc[0]
@@ -370,23 +402,27 @@ def pesquisa_multipeso_multidia2(variable_strategy1, variable_strategy2, df):
     dic_day = {}
     i = 0
     ultima_exposicao = 1
+    variation1 = f'{variable_strategy1}_variation'
+    variation2 = f'{variable_strategy2}_variation'
     for day in df['Date'][window+null_n_strategy+shift:]:
         print(f'Processando dia {day}')
         all_variable_series = df.loc[df['Date']<=day].tail(window+null_n_strategy+shift)
         variable_series = all_variable_series.iloc[:-1]
 #         print(variable_series)
-        
-        variable_series[f'{variable_strategy1}_variation'] = np.cumprod(1+variable_series[variable_strategy1].pct_change())
-        variable_series[f'{variable_strategy2}_variation'] = np.cumprod(1+variable_series[variable_strategy2].pct_change())
 
-        # variable_series[f'{variable_strategy}_variation'] = variable_series[variable_strategy].pct_change()
- 
+        variable_series[variation1] = np.cumprod(1+variable_series[variable_strategy1].pct_change())
+        variable_series[variation2] = np.cumprod(1+variable_series[variable_strategy2].pct_change())
+
         #normaliza sinal de 0 a 1
-        variable_series[f'{variable_strategy1}_variation'] = variable_series[f'{variable_strategy1}_variation']/variable_series[f'{variable_strategy1}_variation'].max()
-        variable_series[f'{variable_strategy2}_variation'] = variable_series[f'{variable_strategy2}_variation']/variable_series[f'{variable_strategy2}_variation'].max()
+        max_value1 = variable_series[variation1].max()
+        variable_series[variation1] = variable_series[variation1]/max_value1
+        max_value2 = variable_series[variation2].max()
+        variable_series[variation2] = variable_series[variation2]/max_value2
 
-        
-        pesos = [-4,-3.0,-2.8,-2.6,-2.4,-2.2,-2,-1.8,-1.6,-1.4,-1.2,-1,-0.8,-0.6,-0.4,-0.2,0,0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2,2.2,2.4,2.6,2.8,3,4]
+
+        pesos = [-4,-3.0,-2.8,-2.6,-2.4,-2.2,-2,-1.8,-1.6,-1.4,-1.2,-1,
+                 -0.8,-0.6,-0.4,-0.2,0,0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,
+                 1.8,2,2.2,2.4,2.6,2.8,3,4]
         # pesos = [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1]
 
         melhor_premio = -99999999999
@@ -394,7 +430,12 @@ def pesquisa_multipeso_multidia2(variable_strategy1, variable_strategy2, df):
         melhor_peso = 0
         melhor_exposition_df = 0
         for peso in pesos:
-            exposition_d_1, premio_risco_variavel = calcula_premio_risco_dia2(variable_series, variable_strategy1, variable_strategy2, estrategia_variacao2, peso, ultima_exposicao)
+            exposition_d_1, premio_risco_variavel = calcula_premio_risco_dia2(variable_series,
+                                                                              variable_strategy1,
+                                                                              variable_strategy2,
+                                                                              estrategia_variacao2,
+                                                                              peso,
+                                                                              ultima_exposicao)
 
             if premio_risco_variavel > melhor_premio:
                 melhor_exposition = exposition_d_1
@@ -405,32 +446,48 @@ def pesquisa_multipeso_multidia2(variable_strategy1, variable_strategy2, df):
 
         ultima_exposicao = melhor_exposition
 
-        dic_day[day] = [melhor_exposition, melhor_premio, melhor_peso, melhor_exposition*ibov_variation_reference_day]
+        dic_day[day] = [melhor_exposition,
+                        melhor_premio,
+                        melhor_peso,
+                        melhor_exposition*ibov_variation_reference_day]
         clear_output(wait=True)
-        
+
 # #         if i == 800:
         # if i == 0:
 
         #     break
         # i+=1
     return dic_day
-     
-             
-def calcula_premio_risco_dia2(variable_series, variable_strategy1, variable_strategy2, estrategia, peso, ultima_exposicao):
+
+
+def calcula_premio_risco_dia2(variable_series,
+                              variable_strategy1,
+                              variable_strategy2,
+                              estrategia,
+                              peso,
+                              ultima_exposicao):
     this_exposition = variable_series
 #     print(this_exposition)
 
-    this_exposition[f'exposicao'] = estrategia(this_exposition[f'{variable_strategy1}_variation'], this_exposition[f'{variable_strategy2}_variation'], peso, ultima_exposicao)
+    this_exposition[f'exposicao'] = estrategia(this_exposition[f'{variable_strategy1}_variation'],
+                                               this_exposition[f'{variable_strategy2}_variation'],
+                                               peso,
+                                               ultima_exposicao)
 
     this_exposition[f'exposicao_shift'] = this_exposition[f'exposicao'].shift(2)
-    
+
     this_exposition[f'exposicao_shift_difference'] = this_exposition[f'exposicao_shift'] - 1
-    
-    this_exposition[f'pnl'] = this_exposition['ibov_variation'] * this_exposition[f'exposicao_shift']
-    
-    this_exposition.loc[this_exposition[f'exposicao_shift_difference'] > 0, f'pnl'] -= this_exposition['DI'] * (this_exposition[f'exposicao_shift']-1)
-    this_exposition.loc[this_exposition[f'exposicao_shift_difference'] < 0, f'pnl'] += this_exposition['DI'] * (1-this_exposition[f'exposicao_shift'])
-    
+
+    this_exposition[f'pnl']=this_exposition['ibov_variation']*this_exposition[f'exposicao_shift']
+
+    condition_positive_exp = this_exposition[f'exposicao_shift_difference'] > 0
+    result_positive_exp = this_exposition['DI'] * (this_exposition[f'exposicao_shift']-1)
+    this_exposition.loc[condition_positive_exp, f'pnl'] -= result_positive_exp
+
+    condition_negative_exp = this_exposition[f'exposicao_shift_difference'] < 0
+    result_negative_exp = this_exposition['DI'] * (1-this_exposition[f'exposicao_shift'])
+    this_exposition.loc[condition_negative_exp, f'pnl'] += result_negative_exp
+
     # print(pd.DataFrame({
     #     'Variavel':this_exposition[variable_strategy],
     #     'Sinal':this_exposition[f'{variable_strategy}_variation'],
@@ -439,7 +496,7 @@ def calcula_premio_risco_dia2(variable_series, variable_strategy1, variable_stra
     #     'IBOV_Var':this_exposition['ibov_variation'],
     #     'P&L_pos_DI':this_exposition[f'pnl_variacao_{variable_strategy}']
     # }))
-    
+
     premio_risco_variavel = premio_risco(this_exposition[f'pnl'])
 
     return this_exposition[f'exposicao_shift'].iloc[-1], premio_risco_variavel
@@ -490,21 +547,36 @@ for variable in variables:
         ibov_df.append(compare_df['IBOV'])
 
     for i in range(len(dates)):
-        gera_grafico_performance(time_df[i], performance_df[i], exposicao_df[i], ibov_df[i], variable, i)
+        gera_grafico_performance(time_df[i],
+                                 performance_df[i],
+                                 exposicao_df[i],
+                                 ibov_df[i],
+                                 variable,
+                                 i)
 
 # %%
 start_time = time.time()
 variable1 = 'Emerg'
 variable2 = 'DOLBRL'
 
-premio_risco_variavel, compare_df, df_geral = gera_graficos2(variable1, variable2, ibov, '01-01-2007','28-10-2010')
+premio_risco_variavel, compare_df, df_geral = gera_graficos2(variable1,
+                                                             variable2,
+                                                             ibov,
+                                                             '01-01-2007',
+                                                             '28-10-2010')
 print(f'{(time.time() - start_time)/60} minutos')
 
 time_df = compare_df.reset_index()['Date']
 performance_df = compare_df['Atribuição_Estratégia']
 exposicao_df = df_geral['Exposição']
 ibov_df = compare_df['IBOV']
-gera_grafico_performance(time_df, performance_df, exposicao_df, ibov_df, variable1+'-'+variable2, 3, False)
+gera_grafico_performance(time_df,
+                         performance_df,
+                         exposicao_df,
+                         ibov_df,
+                         variable1+'-'+variable2,
+                         3,
+                         False)
 # %%
 start_time = time.time()
 variable1 = 'soybean'
@@ -521,7 +593,11 @@ exposicao_df = []
 ibov_df = []
 
 for date in dates:
-    premio_risco_variavel, compare_df, df_geral = gera_graficos2(variable1, variable2, ibov, date[0],date[1])
+    premio_risco_variavel, compare_df, df_geral = gera_graficos2(variable1,
+                                                                 variable2,
+                                                                 ibov,
+                                                                 date[0],
+                                                                 date[1])
     print(f'{(time.time() - start_time)/60} minutos')
 
     time_df.append(compare_df.reset_index()['Date'])
@@ -529,7 +605,12 @@ for date in dates:
     exposicao_df.append(df_geral['Exposição'])
     ibov_df.append(compare_df['IBOV'])
 for i in range(len(dates)):
-    gera_grafico_performance(time_df[i], performance_df[i], exposicao_df[i], ibov_df[i], variable1+'-'+variable2, i)
+    gera_grafico_performance(time_df[i],
+                             performance_df[i],
+                             exposicao_df[i],
+                             ibov_df[i],
+                             variable1+'-'+variable2,
+                             i)
 
 
 # %%
